@@ -1,0 +1,133 @@
+#NSD Script til en analyse av Livskvalitetundersøkelsen 2021
+
+library(tidyverse)
+library(readxl)
+library(countrycode)
+library(corrplot)
+library(ggpubr)
+library(stringr)
+library(vtable)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(jtools)
+library(dplyr)
+library(knitr)
+
+#Variabler
+
+#Variebelen kjoenn er variabelen for kjønn, hvor 0 er mann og 1 er dame
+#Variebelen SKH7 er variabelen for fra 1-10 hvor fornøyd er du med egen inntekt?
+#Variebelen h_wies er variabelen for nettoinntekt
+#Variebelen M11 er variabelen for Fra 1-10 hvor fornøyd er du med dine sosiale relasjoner?
+#Variabelen Fylke
+
+NSD <- read_csv("C:/Users/imh/Downloads/order-nr-1594.zip")
+
+#Rensker og filtrer data så det blir mulig å bruke senere i analysen
+NSD1 <- NSD%>% select(alder,A1a,SKH7,M11, SKH12, SKH9, SKH13, wies, saminnt, kjoenn, B5, H88, Fylke)
+NSD2 <- na.omit(NSD1)
+NSD3 <- NSD2  %>%  filter(A1a!='99' & A1a !='98' & SKH7!='99' & SKH7 !='98' & M11 != '99' & M11 != '98' & saminnt!='-Inf' & saminnt!='0'& alder!='17') 
+NSD4 <- NSD3 %>% filter(wies>= 0)
+NSD5 <- NSD4 %>% mutate(wies = log(wies))
+NSD5$kjoenn <- ifelse(NSD5$kjoenn == 1, 0, 1)
+table(NSD5$kjoenn)
+
+NSD5=NSD5%>%  
+  mutate(Fylke = as.factor(Fylke))%>%
+  mutate(kjoenn=as.factor(kjoenn))
+#Regresjonsanalyse 0 er mann og 1 er dame
+
+Model1 <- lm(A1a ~M11+wies, data=NSD5)
+summary(Model1)
+tab_model(Model1)
+
+Model2 <- lm(A1a ~wies+M11+alder+kjoenn+Fylke, data=NSD5)
+summary(Model2)
+tab_model(Model1,Model2)
+
+Model3 <- lm(A1a ~wies+M11+alder+kjoenn +wies*kjoenn +M11*kjoenn +Fylke, data=NSD5)
+summary(Model3)
+tab_model(Model3)
+
+Model4 <- lm(A1a ~SKH7+M11+alder+kjoenn+Fylke, data=NSD5)
+summary(Model4)
+tab_model(Model4)
+
+NSD5<-NSD%>%
+  mutate(alder2= alder^2)
+
+Model5 <- lm(A1a ~SKH7+M11+alder+kjoenn +SKH7*kjoenn +M11*kjoenn +Fylke, data=NSD5)
+summary(Model5)
+tab_model(Model4,Model5)
+
+Modell <- lm(A1a ~alder+alder2+SKH7+M11+alder+kjoenn, data=NSD5)
+summary(Modell)
+tab_model(Modell)
+
+library(car)
+
+vif(Model1)
+vif(Model2)
+vif(Model3)
+vif(Model4)
+vif(Model5)
+
+# Matrise# Denne ble kuttet fra oppgaven
+
+NSD6 <- NSD5 %>% rename("Selvrapportert lykke"="A1a", "Tilfredsstillelse av inntekt"="SKH7", "Tilfredsstillelse av sosiale relasjoner"="M11", "Nettoinntekt"="wies", "Kjonn"="kjoenn",  "Alder"="alder", "Fylke"="Fylke")
+Y <- as.numeric(NSD6$"Selvrapportert lykke")
+X <- as.data.frame(NSD6[, c("Tilfredsstillelse av inntekt", "Tilfredsstillelse av sosiale relasjoner", "Nettoinntekt", "Kjonn", "Alder", "Fylke")])
+X <- lapply(X, as.numeric)
+X <- as.data.frame(X)
+
+# Calculate the correlation matrix
+corr_matrix <- cor(X, Y)
+
+print(corr_matrix)
+
+# Visualize the correlation matrix using a bar plot
+library(ggplot2)
+ggplot2::ggplot(data = data.frame(variable = colnames(X), correlation = corr_matrix),
+                aes(x = variable, y = correlation)) +
+  ggplot2::geom_bar(stat = "identity", fill = "grey") +
+  ggplot2:: geom_text(aes(label = round(correlation, 2)), vjust = -0.5, size = 3) +
+  ggplot2::coord_flip() +
+  ggplot2::labs(x = "", y = "", title = "Korrelasjonsmatrise")
+
+
+#Plots
+
+ggplot(NSD5, aes(x = A1a, y = wies)) +
+  scatterplot() +
+  labs(x = "Lykke score", y = "Gjennomsnitt av nettoinntekt") +
+  theme_classic()
+
+ggplot(NSD5, aes(x = A1a, y = SKH7)) +
+  stat_summary(fun = mean, geom = "line", color = "red") +
+  labs(x = "Lykke score", y = "Tilfredsstillelse med egen inntekt") +
+  theme_classic()
+
+ggplot(NSD5, aes(x = A1a, y = M11)) +
+  stat_summary(fun = mean, geom = "line", color = "red") +
+  labs(x = "Lykke score", y = "Tilfredsstillelse med sosiale relasjoner") +
+  theme_classic()
+
+#Deskreptiv statestikk
+
+
+# Velger ut variabler til den deskreptive statestikken:
+df <- subset(NSD5, select = c("alder","A1a","SKH7","M11","wies", "kjoenn", "Fylke"))
+# Gi beskrivende navn til variablene (i samme rekkefølge som de ligger i datasettet)
+labs <- c("Alder","Alt i alt hvordan har du det","Tilfredsstillelse av egen inntekt","Tilfredsstillelse av sosiale relasjoner", "Nettoinntekt", "Kjonn", "Fylke") 
+
+# Selve tabellen
+st(df, labels=labs, title = "Deskriptiv statistikk:",
+   summ = list(
+     c('notNA(x)','mean(x)','sd(x)','min(x)','max(x)'), 
+     c('notNA(x)','mean(x)')
+   ),
+   summ.names = list(
+     c('N','Gjennomsnitt','SD','Min','Maks'), 
+     c('','') # Empty column names for the second summary statistic
+  )))# Gi navn til kolumnene
